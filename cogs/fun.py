@@ -26,15 +26,7 @@ class fun(commands.Cog):
                       help="dOeS tHiS tO yOuR tExT.",
                       brief="oKaY kArEn")
     async def mock(self, ctx, *, message):
-        out = ""
-        curr_func = "lower"
-        for i in message:
-            if curr_func == "lower":
-                out += i.lower()
-                curr_func = "upper"
-            else:
-                out += i.upper()
-                curr_func = "lower"
+        out = "".join([message[i].lower() if i%2==0 else message[i].upper() for i in range(len(message))])
         await ctx.send(out)
 
     @commands.command(name="uwu",
@@ -97,47 +89,79 @@ class fun(commands.Cog):
 
 
     #Tag commands
-    @commands.group(name="tag")
+    @commands.group(aliases=["tags", "t"],
+                    invoke_without_command=True,
+                    help="Commands related to making and using tags. Commands-\nadd\nremove\nedit-tag\nedit-output\nsearch")
     async def tag(self, ctx, tag):
-        '''if ctx.invoked_subcommand is None:
+        if ctx.invoked_subcommand is None:
             value = await self.bot.postgres.fetchval("SELECT value FROM guilds_tags WHERE guild_id=$1 and tag=$2", ctx.guild.id, tag)
-            return await ctx.send(value)'''
-        pass
-
+            if value is None:
+                value = await self.bot.postgres.fetchval("SELECT value FROM global_tags WHERE tag=$1", tag)
+            if value is None: return await ctx.send("Tag doesn't exist :(")
+            return await ctx.send(value)
 
     @tag.command(name="add",
                  aliases=["-a", "create"],
-                 usage="<tag> <output>")
+                 usage="<tag> <output>",
+                 help="Used to create a tag.")
     async def add_tag(self, ctx, tag, *, output):
         await self.bot.postgres.execute(f"INSERT INTO guilds_tags (guild_id, tag, value, created_by) VALUES($1, $2, $3, $4)", ctx.guild.id, tag, output, ctx.author.id)
         await ctx.send("Added")
 
     @tag.command(name="remove",
                  aliases=["-r", "delete"],
-                 usage="<tag>")
+                 usage="<tag>",
+                 help="Used to remove a tag. You must be an administrator or must've created the tag to use this.")
     async def remove_tag(self, ctx, tag):
         if ctx.author.guild_permissions.administrator:
-            print("is admin")
             await self.bot.postgres.execute("DELETE FROM guilds_tags WHERE guild_id=$1 and tag=$2", ctx.guild.id, tag)
         else:
-            print("not admin")
             await self.bot.postgres.execute("DELETE FROM guilds_tags WHERE guild_id=$1 and tag=$2 and created_by=$3", ctx.guild.id, tag, ctx.author.id)
         await ctx.send(f"Removed *{tag}*")
 
     @tag.command(name="edit-output",
-                 usage="<tag> <new output>")
-    async def edit_tag(self, ctx, tag, *, new_output):
+                 usage="<tag> <new output>",
+                 help="Used to edit the output of a tag. You must be an administrator or must've created the tag to use this.")
+    async def edit_tag_output(self, ctx, tag, *, new_output):
         if ctx.author.guild_permissions.administrator:
-            print("is admin")
             await self.bot.postgres.execute("UPDATE guilds_tags SET value=$1 WHERE tag=$2 and guild_id=$3", new_output, tag, ctx.guild.id)
         else:
-            print("not admin")
             await self.bot.postgres.execute("UPDATE guilds_tags SET value=$1 WHERE tag=$2 and guild_id=$3 and created_by=$4",new_output, tag, ctx.guild.id, ctx.author.id)
-            
         await ctx.send(f"Tag *{tag}* edited.")
 
+    @tag.command(name="edit-tag",
+                 usage="<tag> <new tag>",
+                 help="Used to edit a tag itself. Enclose the tag (the original tag) in quotes if it has spaces. You must be an administrator or must've created the tag to use this.")
+    async def edit_tag(self, ctx, tag, *, new_tag):
+        if ctx.author.guild_permissions.administrator:
+            await self.bot.postgres.execute("UPDATE guilds_tags SET tag=$1 WHERE tag=$2 and guild_id=$3", new_tag, tag, ctx.guild.id)
+        else:
+            await self.bot.postgres.execute(
+                "UPDATE guilds_tags SET value=$1 WHERE tag=$2 and guild_id=$3 and created_by=$4", new_tag, tag, ctx.guild.id, ctx.author.id)
+        await ctx.send(f"Tag *{tag}* edited.")
 
+    @tag.command(name="search",
+                 usage="<tag>",
+                 help="Returns all tags which contains the searched word.")
+    @commands.guild_only()
+    async def tag_search(self, ctx, *, tag):
+        data = await self.bot.postgres.fetch("SELECT tag, value FROM guilds_tags WHERE tag LIKE $1 AND guild_id = $2", f'%{tag}%', ctx.guild.id)
+        embed = discord.Embed(title="Search Results", color=discord.Color.blurple())
+        for record in data:
+            embed.add_field(name=record["tag"], value=record["value"], inline=False)
+        embed.set_footer(text=f"Requested by {ctx.message.author}")
+        await ctx.send(embed=embed)
 
+    @tag.command(name="all",
+                 help="DMs you a list of all tags in your server.")
+    @commands.guild_only()
+    async def tags_all(self, ctx):
+        data = await self.bot.postgres.fetch("SELECT tag FROM guilds_tags WHERE guild_id=$1", ctx.guild.id)
+        out = ""
+        for i, j in enumerate(data):
+            out += f"{i+1}. {j['tag']}\n"
+        await ctx.author.send(out)
+        return await ctx.message.add_reaction("✅")
 
 
 
